@@ -4,8 +4,9 @@
     "module": "CommonJS",
     "rootDir": "./",
     "outDir": "./dist",
-    "esModuleInterop":true,
-    "strict":true,
-    "skipLibCheck":true
-  }
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
 }
