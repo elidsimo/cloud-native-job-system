@@ -1,0 +1,49 @@
+# Valeurs par défaut du chart.
+# Les valeurs propres à un environnement sont dans helm/values-dev.yaml.
+
+image:
+  # Adresse du registry ECR : fournie au déploiement avec --set image.registry=...
+  registry: ""
+  pullPolicy: IfNotPresent
+
+api:
+  repository: cloud-job-platform/api
+  tag: ""
+  replicas: 1
+  port: 3000
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+worker:
+  repository: cloud-job-platform/worker
+  tag: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+redis:
+  image: redis:7-alpine
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+config:
+  logLevel: info
+
+secret:
+  # Nom du secret Kubernetes qui contient la clé DATABASE_URL (créé hors du chart)
+  name: cloud-job-secret
+
+migration:
+  enabled: true

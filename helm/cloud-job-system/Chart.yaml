@@ -1,0 +1,6 @@
+apiVersion: v2
+name: cloud-job-system
+description: API, worker et Redis du Cloud-Native Job Processing System
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

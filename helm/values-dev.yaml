@@ -1,0 +1,5 @@
+# Valeurs de l'environnement dev
+api:
+  tag: "0.1.0"
+worker:
+  tag: "0.1.0"
