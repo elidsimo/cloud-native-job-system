@@ -1,0 +1,88 @@
+name: Deploy
+
+# Lancé à la main depuis l'onglet Actions (le cluster dev n'existe pas en permanence)
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag des images (numéro de commit complet). Vide = le commit de la branche choisie."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-west-1
+  CLUSTER_NAME: cloud-job-platform-dev
+  NAMESPACE: cloud-job-system
+  RELEASE: cloud-job-system
+
+jobs:
+  deploy:
+    name: Déployer sur dev
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write # nécessaire pour la connexion OIDC à AWS
+    env:
+      TAG: ${{ inputs.image_tag || github.sha }}
+    steps:
+      - name: Récupérer le code (chart Helm)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Se connecter à AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Vérifier que les images existent dans ECR
+        run: |
+          for repo in cloud-job-platform/api cloud-job-platform/worker; do
+            if ! aws ecr describe-images --repository-name "$repo" --image-ids imageTag="$TAG" > /dev/null 2>&1; then
+              echo "::error::Image $repo:$TAG introuvable dans ECR. Le pipeline CI a-t-il fini sur ce commit ?"
+              exit 1
+            fi
+          done
+
+      - name: Se connecter au cluster
+        run: aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER_NAME"
+
+      - name: Vérifier que le secret de la base existe
+        run: |
+          if ! kubectl -n "$NAMESPACE" get secret cloud-job-secret > /dev/null 2>&1; then
+            echo "::error::Le secret cloud-job-secret est absent du namespace $NAMESPACE. Crée-le d'abord (voir le guide)."
+            exit 1
+          fi
+
+      - name: Installer Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.0
+
+      - name: Déployer avec Helm
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          REGISTRY="$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
+          helm upgrade --install "$RELEASE" helm/cloud-job-system \
+            --namespace "$NAMESPACE" \
+            -f helm/values-dev.yaml \
+            --set image.registry="$REGISTRY" \
+            --set api.tag="$TAG" \
+            --set worker.tag="$TAG" \
+            --wait --timeout 10m
+
+      - name: Test de fumée (l'API répond-elle ?)
+        run: |
+          kubectl -n "$NAMESPACE" exec "deploy/${RELEASE}-api" -- node -e "fetch('http://localhost:3000/health').then(r => { console.log('HTTP', r.status); process.exit(r.ok ? 0 : 1); }).catch(e => { console.error(e); process.exit(1); })"
+
+      - name: Diagnostic en cas d'échec
+        if: failure()
+        run: |
+          kubectl -n "$NAMESPACE" get pods,jobs || true
+          kubectl -n "$NAMESPACE" logs "job/${RELEASE}-migrate" --tail 50 || true
+          kubectl -n "$NAMESPACE" describe pods | tail -n 60 || true
